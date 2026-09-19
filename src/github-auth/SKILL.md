@@ -8,39 +8,33 @@ description: >-
   differs.
 ---
 
-# GitHub auth (GH_TOKEN ↔ GITHUB_SECRET_KEY)
+# GitHub auth
 
-No problem—you do **not** need to regenerate the token just because the environment-variable name is different.
-
-If your token is currently in `GH_TOKEN`:
+If only `GITHUB_SECRET_KEY` exists, map it to `GH_TOKEN`:
 
 ```bash
-export GITHUB_SECRET_KEY="$GH_TOKEN"
+export GH_TOKEN="${GH_TOKEN:-$GITHUB_SECRET_KEY}"
 ```
 
-Since `gh` expects `GH_TOKEN`, authenticate Git with:
+Verify:
 
 ```bash
-export GH_TOKEN="$GITHUB_SECRET_KEY"
+gh auth status
+```
 
-gh auth login --hostname github.com --with-token <<< "$GH_TOKEN"
+For Git operations:
+
+```bash
 gh auth setup-git
 ```
 
-Then use the repository normally:
+Then use Git normally:
 
 ```bash
 git clone https://github.com/minhduc2611/minh-kim-cms.git
-cd minh-kim-cms
-
 git add .
 git commit -m "Update files"
 git push
 ```
 
-If your AI agent specifically expects `GITHUB_SECRET_KEY`, configure that variable in the agent, but keep the `GH_TOKEN` assignment for GitHub CLI compatibility:
-
-```bash
-export GITHUB_SECRET_KEY="your-token"
-export GH_TOKEN="$GITHUB_SECRET_KEY"
-```
+Never print, log, commit, or expose the token.
