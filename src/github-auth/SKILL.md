@@ -8,33 +8,31 @@ description: >-
   differs.
 ---
 
-# GitHub auth
+# GitHub auth (GH_TOKEN ↔ GITHUB_SECRET_KEY)
 
-If only `GITHUB_SECRET_KEY` exists, map it to `GH_TOKEN`:
-
-```bash
-export GH_TOKEN="${GH_TOKEN:-$GITHUB_SECRET_KEY}"
-```
-
-Verify:
+Since `gh` expects `GH_TOKEN`, authenticate Git with:
 
 ```bash
-gh auth status
+export GH_TOKEN="$GITHUB_SECRET_KEY"
+gh auth login --hostname github.com --with-token <<< "$GH_TOKEN"
+gh auth setup-git # necessary for git operations
 ```
 
-For Git operations:
-
-```bash
-gh auth setup-git
-```
-
-Then use Git normally:
+Then use the repository normally:
 
 ```bash
 git clone https://github.com/minhduc2611/minh-kim-cms.git
+cd minh-kim-cms
+
+# After making changes
 git add .
 git commit -m "Update files"
 git push
 ```
 
-Never print, log, commit, or expose the token.
+If your AI agent specifically expects `GITHUB_SECRET_KEY`, configure that variable in the agent, but keep the `GH_TOKEN` assignment for GitHub CLI compatibility:
+
+```bash
+export GITHUB_SECRET_KEY="your-token"
+export GH_TOKEN="$GITHUB_SECRET_KEY"
+```
