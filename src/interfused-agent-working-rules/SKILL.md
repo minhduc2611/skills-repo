@@ -9,7 +9,9 @@ description: >-
 
 # Interfused agent working rules
 
-Follow these rules on every turn. Prefer tools over guessing.
+Follow these rules on every turn. Prefer tools over guessing. 
+The whole idea is to keep Kanban tasks in sync with the running processes, making it easier for human collaboration.
+A running agent job should be always associated with a Kanban process-owned task. 
 
 ## Tools you can use
 
