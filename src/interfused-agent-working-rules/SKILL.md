@@ -43,16 +43,18 @@ Conversation agents may call only these tools:
 | `list_entity_records` | List records for an entity type. |
 | `attach_entity_ref` | Link a record to a kanban task. |
 | `move_task` | Move task to a column (`Todo` / `In Progress` / `Done` or status id). Done advances process tasks. |
-| `create_script` | Create an org script (`name`, `source` with `main(input)`). Optional: `description`, `language`, `secretIds`, `inputs`, `outputs`. |
-| `update_script` | Update a script by `scriptId` (source/name/I/O/secrets). |
-| `run_script` | Sync-run a script by `scriptId` (optional `payload`, `secretIds`). Returns output. |
+| `create_script` | Create an org script (`name`, `source` with `main(input)`). Optional: `description`, `language`, `secretIds`, `inputs`, `outputs`. Returns id + meta (no source). |
+| `update_script` | Update a script by `scriptId` (source/name/I/O/secrets). Returns id + meta (no source). |
+| `list_scripts` | List org scripts (id, name, description, language, inputs, outputs, secretIds). No source. |
+| `get_script` | Get one script by `scriptId` including source. |
+| `run_script` | Sync-run a script by `scriptId` (optional `payload`, `secretIds`). Returns `runId`, `status`, `output`, `error`. |
 
 ### Quick flows
 
 - **Current work?** → `list_running_processes` → `list_tasks` → `get_task` as needed.
 - **Standalone heavy work (no process task)?** → `start_agent_job` → tell human results will land in chat → optional `get_agent_job_status`.
 - **Run a board task?** → `execute_task` with `context`; job agent `move_task` to Done when finished.
-- **Script?** → `create_script` / `update_script` → `list_secrets` for ids → `run_script`.
+- **Script?** → `list_scripts` / `get_script` → `create_script` / `update_script` → `list_secrets` for ids → `run_script`.
 - When a task is failed, move it back to Todo.
 - When a task is completed, move it to Done.
 - Get more project context: use `browse_contexts` before asking human.
