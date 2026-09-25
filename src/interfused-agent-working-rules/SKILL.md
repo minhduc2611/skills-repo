@@ -9,9 +9,30 @@ description: >-
 
 # Interfused agent working rules
 
-Follow these rules on every turn. Prefer tools over guessing. 
+Follow these rules on every turn. Prefer tools over guessing.
 The whole idea is to keep Kanban tasks in sync with the running processes, making it easier for human collaboration.
-A running agent job should be always associated with a Kanban process-owned task. 
+A running agent job should be always associated with a Kanban process-owned task.
+
+## Four data / context layers
+
+Use the right layer. Do not dump structured CRM rows into Context notes, and do not invent brand/repo facts when memory already has them.
+
+| Layer | What it is | Lifetime | Tools |
+|---|---|---|---|
+| **1. Org data records** | Schema’d long-term rows (leads, schedule posts, …) via DataSource → EntityType → EntityRecord | Months–years | `create_data_source`, `define_entity_type`, `get_entity_type`, `update_entity_type`, `upsert_entity_record`, `list_entity_types`, `list_entity_records`, `attach_entity_ref` |
+| **2. Org context** | SSOT prose: brand, goals, vision, voice | Org life | `put_context` (`scope=organization`), `browse_contexts` (`scope=organization`), `update_context`, `delete_context` |
+| **3. Project context** | Project facts: git repos, materials, paths, constraints | Project life | `put_context` (`scope=project` + `projectId`), `browse_contexts` (`scope=project` / `projectId`), `update_context`, `delete_context` |
+| **4. Process context** | Shared notes for one running process (HITL answers, run goals) | One run | `put_context` / `put_process_context`, `get_process_memory`, `browse_contexts` (`scope=process` / `runningProcessId`), `update_context`, `delete_context` |
+
+**Lookup order before asking a human:** org context → project context (if `projectId`) → process memory → then `ask_human`.
+
+**Write rules:**
+
+- Tabular / many-row data → layer 1 (entity records).
+- Stable brand/goals → layer 2.
+- Repos / materials for a project → layer 3.
+- Answers and facts needed only for this run → layer 4.
+- Context notes are append-oriented free text (edit/delete by `contextId` when correcting).
 
 ## Tools you can use
 
@@ -31,9 +52,12 @@ Conversation agents may call only these tools:
 | `search_processes` | Semantic search over process templates. |
 | `start_process` | Start a saved process (`processId`, optional `autorun`, `projectId`). |
 | `execute_task` | Move task In Progress + start its job; pass `context` summarizing human answers/goals. |
-| `put_process_context` | Store shared context on a running process. |
-| `get_process_memory` | Read contexts + prior results for a running process. |
-| `browse_contexts` | Browse stored Context notes (optional `runningProcessId`). |
+| `put_context` | Append Context note (`scope`: `organization` \| `project` \| `process`; require `projectId` / `runningProcessId` as needed). |
+| `put_process_context` | Alias for `put_context` with `scope=process`. |
+| `get_process_memory` | Read org + project + process contexts and prior results for a running process. |
+| `browse_contexts` | Browse Context notes; filter by `scope` / `projectId` / `runningProcessId`. |
+| `update_context` | Update a Context note by `contextId`. |
+| `delete_context` | Delete a Context note by `contextId`. |
 | `create_data_source` | Create a data-source container. |
 | `define_entity_type` | New entity type under a data source. |
 | `get_entity_type` | Fetch entity type + schema. |
@@ -54,22 +78,22 @@ Conversation agents may call only these tools:
 - **Current work?** → `list_running_processes` → `list_tasks` → `get_task` as needed.
 - **Standalone heavy work (no process task)?** → `start_agent_job` → tell human results will land in chat → optional `get_agent_job_status`.
 - **Run a board task?** → `execute_task` with `context`; job agent follows **Execute-task procedure** below.
+- **Need remembered facts?** → `browse_contexts` / `get_process_memory` before asking the human.
 - **Script?** → write source under `/tmp/work` → `create_script` / `update_script` with `sourcePath` → `list_secrets` → `run_script`.
 - When a task is failed, move it back to Todo.
 - When a task is completed, move it to Done.
-- Get more project context: use `browse_contexts` before asking human.
 
 ## Execute-task procedure
 
 When you are a delegated job running a kanban task (prompt says execute-task), follow this exactly:
 
-1. **Orient** — load context    - If you truly need human input for something not already in memory, call `ask_human` with `conversationId` from the Task section (if present), then STOP with a short summary that you are waiting.
-before doing work:
+1. **Orient** — load context before doing work:
    - Call `get_task` for this Task ID.
-   - Call `get_process_memory` for this Running process ID (if present). There are Organization big memory, project memory and task memory 
-   - Treat Shared process memory and facts in the prompt as known. Do not re-ask answered questions.
+   - Call `get_process_memory` for this Running process ID (if present). It returns **organizationContexts**, **projectContexts**, **processContexts**, and **results**. Treat Shared memory in the prompt as known. Do not re-ask answered questions.
+   - If you truly need human input for something not already in memory, call `ask_human` with `conversationId` from the Task section (if present), then STOP with a short summary that you are waiting.
 2. **Work** — complete the task using the assigned agent system prompt and MCP tools as needed.
    - First ensure this task is In Progress (`move_task` if needed).
+   - Persist durable facts with the correct layer (`put_context` or entity records).
 3. **Close out** — when the work is actually finished:
    - Update the task if needed (`update_task`).
    - Move the task to Done (`move_task`). If there are failure, move it back to Todo.
@@ -87,7 +111,7 @@ Scripts are for reliable deterministic code execution, data routing, data transf
 - Declare `inputs` / `outputs` on create/update (`name`, `type`: `string` | `number` | `boolean` | `json`, `required`). Payload to `run_script` must match `inputs`.
 - Secrets: `list_secrets` → pass UUIDs as `secretIds` on create or on `run_script`. Values appear as env vars by **key** (e.g. `Deno.env.get("APIFY_API_KEY")` / `os.environ["APIFY_API_KEY"]`).
 
-#### How scripts works 
+#### How scripts works
 - scripts are wrapped in a function called `main` that takes an input and returns an output
 ```typescript
 /*
@@ -101,8 +125,8 @@ async function main(input: ScriptInput) {
   }
 
   // logics
-  
-  const items = await response.json();  
+
+  const items = await response.json();
 
   return { ok: true, received: items }
 }
