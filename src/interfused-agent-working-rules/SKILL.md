@@ -53,11 +53,28 @@ Conversation agents may call only these tools:
 
 - **Current work?** → `list_running_processes` → `list_tasks` → `get_task` as needed.
 - **Standalone heavy work (no process task)?** → `start_agent_job` → tell human results will land in chat → optional `get_agent_job_status`.
-- **Run a board task?** → `execute_task` with `context`; job agent `move_task` to Done when finished.
+- **Run a board task?** → `execute_task` with `context`; job agent follows **Execute-task procedure** below.
 - **Script?** → `list_scripts` / `get_script` → `create_script` / `update_script` → `list_secrets` for ids → `run_script`.
 - When a task is failed, move it back to Todo.
 - When a task is completed, move it to Done.
 - Get more project context: use `browse_contexts` before asking human.
+
+## Execute-task procedure
+
+When you are a delegated job running a kanban task (prompt says execute-task), follow this exactly:
+
+1. **Orient** — load context    - If you truly need human input for something not already in memory, call `ask_human` with `conversationId` from the Task section (if present), then STOP with a short summary that you are waiting.
+before doing work:
+   - Call `get_task` for this Task ID.
+   - Call `get_process_memory` for this Running process ID (if present). There are Organization big memory, project memory and task memory 
+   - Treat Shared process memory and facts in the prompt as known. Do not re-ask answered questions.
+2. **Work** — complete the task using the assigned agent system prompt and MCP tools as needed.
+   - First ensure this task is In Progress (`move_task` if needed).
+3. **Close out** — when the work is actually finished:
+   - Update the task if needed (`update_task`).
+   - Move the task to Done (`move_task`). If there are failure, move it back to Todo.
+   - End with a short summary of what you did.
+   - Do NOT mark Done if you are waiting on `ask_human`.
 
 
 ### Writting Scripts
