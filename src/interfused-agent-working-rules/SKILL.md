@@ -72,6 +72,12 @@ Conversation agents may call only these tools:
 | `list_scripts` | List org scripts (id, name, description, language, inputs, outputs, secretIds). No source. |
 | `get_script` | Get one script by `scriptId` including source. |
 | `run_script` | Sync-run a script by `scriptId` (optional `payload`, `secretIds`). Returns `runId`, `status`, `output`, `error`. |
+| `list_cms_pages` | List CMS pages (id, slug, title, published, moduleCount). |
+| `get_cms_page` | Get one page + modules (`scriptId`, props). |
+| `create_cms_page` | Create empty page (`title`, `slug`). Always follow with `upsert_cms_modules`. |
+| `update_cms_page` | Update page meta only (title/slug/published). |
+| `upsert_cms_modules` | Set page modules. **data-panel MUST include `scriptId`** (never leave Script as none). |
+| `preview_cms_page` | Run bound data-panel scripts; returns `liveData` / `liveError`. |
 
 ### Quick flows
 
@@ -80,8 +86,27 @@ Conversation agents may call only these tools:
 - **Run a board task?** → `execute_task` with `context`; job agent follows **Execute-task procedure** below.
 - **Need remembered facts?** → `browse_contexts` / `get_process_memory` before asking the human.
 - **Script?** → write source under `/tmp/work` → `create_script` / `update_script` with `sourcePath` → `list_secrets` → `run_script`.
+- **Stats / dashboard / “how many …” page?** → follow **CMS data pages** below (script first, then bind `scriptId` on data-panel).
 - When a task is failed, move it back to Todo.
 - When a task is completed, move it to Done.
+
+## CMS data pages (mandatory script)
+
+When the user wants a page, dashboard, or statistics for org data (leads counts, “how many found”, tables of records):
+
+1. **Script first** — `list_scripts`. Reuse or `create_script` / `update_script` a script that returns the data (usually `main(input, db)` aggregating entity records). Never ship a stats page without a working script.
+2. **Schema if needed** — `list_entity_types` / `list_entity_records` when type names or fields are unknown.
+3. **Page** — `list_cms_pages` then `create_cms_page` or reuse.
+4. **Bind script** — `upsert_cms_modules` with at least one `data-panel` module:
+   - `scriptId` = the script id from step 1 (**required** — do not omit; do not leave “— none —”)
+   - `props`: `{ heading, display: "stats"|"table"|"list", columns: string[] }`
+   - optional `scriptInput` if the script needs payload
+5. **Verify** — `preview_cms_page`; if `liveError` or missing `liveData`, fix the script and re-upsert.
+6. Reply with `/admin/cms/:pageId`.
+
+**Hard rule:** A `data-panel` without `scriptId` is incomplete. Do not tell the user the page is done until the Script field is set and preview succeeds (or you clearly report the script error).
+
+Do not scrape anew for “how many found” — count stored records unless the user asked to harvest.
 
 ## Execute-task procedure
 
@@ -107,26 +132,59 @@ Scripts are for reliable deterministic code execution, data routing, data transf
 
 #### Contract
 - Language: `typescript` (default) or `python`.
-- Entrypoint: `main(input)` that **returns** a JSON-serializable value. Do **not** `console.log` / `print` the result — the runtime captures the return value as `output`.
+- Entrypoint: `async function main(input: ScriptInput, db: ScriptDb)` that **returns** a JSON-serializable value. Do **not** `console.log` / `print` the result — the runtime captures the return value as `output`.
+- Always take `db` as the second arg when reading/writing org entity data.
 - Declare `inputs` / `outputs` on create/update (`name`, `type`: `string` | `number` | `boolean` | `json`, `required`). Payload to `run_script` must match `inputs`.
 - Secrets: `list_secrets` → pass UUIDs as `secretIds` on create or on `run_script`. Values appear as env vars by **key** (e.g. `Deno.env.get("APIFY_API_KEY")` / `os.environ["APIFY_API_KEY"]`).
+
+#### Using `db` (org entity catalogs)
+
+`db.entity(entityTypeName)` talks to stored Data → EntityType → EntityRecord rows. Prefer this over hardcoding arrays from chat history.
+
+| Method | Use |
+|--------|-----|
+| `list({ limit?, offset? })` | Page records (for stats / tables) |
+| `get(id)` | One record by id |
+| `add(payload)` | Insert |
+| `update(id, patch)` | Patch fields |
+| `upsert(object)` | Idempotent write (include identity fields the type expects) |
+| `remove(id)` | Delete |
+
+`entityTypeName` is the **entity type name** (e.g. `"ClientLead"`), not the data-source name. Discover names with `list_entity_types` before writing the script.
+
+```typescript
+// Stats / CMS data-panel: load from DB, never invent rows from conversation memory
+async function main(_input: ScriptInput, db: ScriptDb) {
+  const page = await db.entity("ClientLead").list({ limit: 100, offset: 0 }) as {
+    data?: Array<{ id: string; payload?: Record<string, unknown> }>;
+    pagination?: { total?: number };
+  };
+  const rows = page.data ?? [];
+  return {
+    total: page.pagination?.total ?? rows.length,
+    rows: rows.map((r) => ({ id: r.id, ...(r.payload ?? {}) })),
+  };
+}
+```
+
+**Hard rule for dashboards:** do not hardcode leads/companies from chat. If `list` is empty, return `{ total: 0, rows: [] }` — do not fabricate sample data.
 
 #### How scripts works
 - scripts are wrapped in a function called `main` that takes an input and returns an output
 ```typescript
 /*
-Example script that scrapes a LinkedIn profile and returns the profile data
+Example: scrape LinkedIn then optionally persist via db
 */
-async function main(input: ScriptInput) {
+async function main(input: ScriptInput, db: ScriptDb) {
   const userUrl = input.userUrl;
   const apifyApiKey = Deno.env.get("APIFY_API_KEY");
   if (!apifyApiKey) {
     throw new Error("APIFY_API_KEY is not set.");
   }
 
-  // logics
-
+  // logics...
   const items = await response.json();
+  // optional: await db.entity("ClientLead").upsert({ ... })
 
   return { ok: true, received: items }
 }
@@ -134,5 +192,6 @@ async function main(input: ScriptInput) {
 
 #### How to write scripts
 - explicit check nulls of required inputs
-- check lastest documentation of the tool you are using
+- check latest documentation of the tool you are using
 - we are using Deno runtime, so you can use Deno specific features, add Deno dependencies to the script, and so on.
+- for org data / CMS panels: use `db.entity(...).list` (etc.); never hardcode business rows from conversation history
