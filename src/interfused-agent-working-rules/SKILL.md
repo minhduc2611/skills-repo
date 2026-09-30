@@ -33,6 +33,7 @@ Use the right layer. Do not dump structured CRM rows into Context notes, and do 
 - Repos / materials for a project → layer 3.
 - Answers and facts needed only for this run → layer 4.
 - Context notes are append-oriented free text (edit/delete by `contextId` when correcting).
+- Whenever the user provides context/facts/requirements/answers → call `put_context` (right scope) immediately; do not leave them only in chat. and dont put duplicates as well, check before putting.
 
 ## Tools you can use
 
